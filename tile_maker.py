@@ -58,10 +58,10 @@ print("Tile source:", os.path.abspath(tile_source_path))
 # where we put our chopped up images
 tile_gen_path = os.path.join(base_path, "tiles")
 
-MIN_ZOOM = 0
-MAX_ZOOM = 7
+MIN_ZOOM = int(os.environ.get("MIN_ZOOM", 0))
+MAX_ZOOM = int(os.environ.get("MAX_ZOOM", 7))
 
-TILE_SIZE = 512 # width and height of each tile
+TILE_SIZE = int(os.environ.get("TILE_SIZE", 512)) # width and height of each tile
 
 with Image.open(tile_source_path) as orig_world_map:
     for z in range(MIN_ZOOM, MAX_ZOOM + 1):

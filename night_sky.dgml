@@ -7,49 +7,59 @@
 
     INSTALL LAYOUT
     ==============
-    Create a folder named "night_sky" inside the "sky" map target of the
+    Create a folder named "night_sky" inside the "earth" map target of the
     program that should display it:
 
-        Marble:  ~/.local/share/marble/maps/sky/night_sky/
-        digiKam: <digiKam install>data/digikam/marble/maps/sky/night_sky/
-                 e.g. C:\Program Files\digiKam\data\digikam\marble\maps\sky\night_sky\
+        digiKam (native):  ~/.local/share/digikam/marble_data/maps/earth/night_sky/
+        digiKam (flatpak): ~/.var/app/org.kde.digikam/data/digikam/marble_data/maps/earth/night_sky/
+        digiKam (Windows): %LOCALAPPDATA%\digikam\marble_data\maps\earth\night_sky\
+        Marble:            ~/.local/share/marble/maps/earth/night_sky/
 
     Put in it:
 
         night_sky.dgml                              (this file)
-        starmap_2020_32k_8bit_stretch.png           (install map, see below)
+        mirrored.jpg                                (install map, see below)
         constellations_borders_mirror.geojson.kml   (copied from final/)
         constellations_lines_mirror.geojson.kml
         constellations_mirror.geojson.kml
         dsos_mag6_mirror.geojson.kml
         stars_6_mirror.geojson.kml
 
+    THE TILES
+    =========
+    The panorama is read from a tile pyramid placed directly inside the
+    theme folder (no "tiles/" subfolder):
+
+        night_sky/<z>/<yyyyyy>/<yyyyyy>_<xxxxxx>.jpg
+
+    Generate it with tile_maker.py and copy the numbered folders over:
+
+        MAX_ZOOM=4 TILE_SOURCE=final/mirrored.jpg python3 tile_maker.py
+        cp -r tiles/* <theme>/
+
+    For an 8192x4096 source, zoom 0-4 is enough: z3 is 1:1 and z4 is a 2x
+    upscale. Generate higher levels only from a larger source (the 32k
+    starmap is 1:1 around z5).
+
     THE INSTALL MAP
     ===============
+    If the tiles are missing, Marble can build them itself from the
+    <installmap> the first time the theme is opened. Those tiles go to
+    Marble's cache instead:
+
+        ~/.cache/marble/maps/earth/night_sky/
+
     Marble's tile generator (TileCreator) refuses images larger than
-    21600x10800 pixels, so the 32k starmap has to be downscaled first.
-    Keep the name identical:
-
-        magick starmap_2020_32k_8bit_stretch.png -resize 21600x10800! \
-               <theme>/starmap_2020_32k_8bit_stretch.png
-
-    The first time the theme is opened, Marble offers to generate the tile
-    pyramid from that image. The tiles are written to Marble's cache:
-
-        ~/.cache/marble/maps/sky/night_sky/
-
-    From a 21600x10800 image that yields levels 0 to 4 with 675x675 tiles.
-    Levels 5 to 7 (declared as maximumTileLevel below) are optional: they
-    only appear if you generate them yourself with tile_maker.py from the
-    full 32k source, which is how higher zoom levels get real detail.
-    Without them Marble simply upscales level 4.
+    21600x10800 pixels, so mirrored.jpg (8192x4096) is safely inside that
+    limit. A 32k starmap would have to be downscaled before use as an
+    install map.
 -->
 <dgml xmlns="http://edu.kde.org/marble/dgml/2.0">
     <document>
         <head>
             <license short="Public Domain">Source: NASA SVS Milky Way panorama, ESA Gaia / HYG star and constellation data. Licenses: Public Domain / CC BY-SA.</license>
             <name>Night Sky</name>
-            <target>sky</target>
+            <target>earth</target>
             <theme>night_sky</theme>
 
             <visible>true</visible>
@@ -76,8 +86,8 @@
             <!-- The background panorama -->
             <layer name="night_sky" backend="texture">
                 <texture name="night_sky_data">
-                    <sourcedir format="JPG"> sky/night_sky </sourcedir>
-                    <installmap> starmap_2020_32k_8bit_stretch.png </installmap>
+                    <sourcedir format="JPG"> earth/night_sky </sourcedir>
+                    <installmap> mirrored.jpg </installmap>
                     <storageLayout maximumTileLevel="7"/>
                 </texture>
             </layer>
@@ -85,19 +95,19 @@
             <!-- Stars, deep sky objects and constellation figures -->
             <layer name="celestial places" backend="geodata">
                 <geodata name="constellation_borders">
-                    <sourcefile format="KML"> maps/sky/night_sky/constellations_borders_mirror.geojson.kml </sourcefile>
+                    <sourcefile format="KML"> maps/earth/night_sky/constellations_borders_mirror.geojson.kml </sourcefile>
                 </geodata>
                 <geodata name="constellation_lines">
-                    <sourcefile format="KML"> maps/sky/night_sky/constellations_lines_mirror.geojson.kml </sourcefile>
+                    <sourcefile format="KML"> maps/earth/night_sky/constellations_lines_mirror.geojson.kml </sourcefile>
                 </geodata>
                 <geodata name="constellations">
-                    <sourcefile format="KML"> maps/sky/night_sky/constellations_mirror.geojson.kml </sourcefile>
+                    <sourcefile format="KML"> maps/earth/night_sky/constellations_mirror.geojson.kml </sourcefile>
                 </geodata>
                 <geodata name="deep_sky_objects">
-                    <sourcefile format="KML"> maps/sky/night_sky/dsos_mag6_mirror.geojson.kml </sourcefile>
+                    <sourcefile format="KML"> maps/earth/night_sky/dsos_mag6_mirror.geojson.kml </sourcefile>
                 </geodata>
                 <geodata name="stars">
-                    <sourcefile format="KML"> maps/sky/night_sky/stars_6_mirror.geojson.kml </sourcefile>
+                    <sourcefile format="KML"> maps/earth/night_sky/stars_6_mirror.geojson.kml </sourcefile>
                 </geodata>
             </layer>
         </map>
