@@ -1,0 +1,12 @@
+# Downloaded source data (large; re-fetched by script.py)
+downloads/
+
+# Generated KML output (rebuilt by script.py)
+final/
+
+# Tile pyramid produced by tile_maker.py
+tiles/
+
+# Python bytecode
+__pycache__/
+*.py[cod]

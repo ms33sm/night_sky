@@ -1,0 +1,24 @@
+# Python dependencies for the night sky -> digiKam / Marble map pipeline.
+#
+#   python3 -m pip install --user -r requirements.txt
+#
+# Versions below are the ones this project was developed and tested with.
+# They are not upper-capped, so plain `pip install -r` upgrades nothing on a
+# machine that already has them installed.
+#
+# Notes:
+#   * Wand is only a binding; it needs the system ImageMagick library
+#     (libmagickwand, e.g. the `imagemagick` / `libmagickwand-dev` package).
+#     Without the EXR and JPEG delegates the panorama step is skipped.
+#   * lxml is needed by both fastkml and beautifulsoup4 (fastkml imports it
+#     directly, bs4 uses it as the fastest parser).
+#   * arrow and typing-extensions are pulled in automatically by fastkml.
+
+Pillow==12.3.0
+Wand==0.7.2
+geojson==3.3.0
+fastkml==1.4.0
+pygeoif==1.6.0
+lxml==6.0.2
+requests==2.32.2
+beautifulsoup4==4.14.3

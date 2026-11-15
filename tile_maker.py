@@ -9,17 +9,51 @@ Created on Mon Dec 29 11:47:30 2025
     
 """
 
+import glob
 import os
+import sys
 from PIL import Image
 
 Image.MAX_IMAGE_PIXELS = None #933120000
 
 
 # make sure we can run this script from wherever and not screw up our paths
-base_path = os.path.dirname(__file__)
+base_path = os.path.dirname(os.path.abspath(__file__))
+
+STARMAP_FILENAME = "starmap_2020_32k_8bit_stretch.png"
+
+
+def find_tile_source():
+    """Locate the starmap image that gets chopped up.
+
+    Set the TILE_SOURCE environment variable to point at an explicit file.
+    Otherwise look next to this script and one directory up, then fall back
+    to any starmap_*32k*.png found in those same places.
+    """
+    override = os.environ.get("TILE_SOURCE")
+    if override:
+        return override
+
+    for folder in (base_path, os.path.join(base_path, "..")):
+        candidate = os.path.join(folder, STARMAP_FILENAME)
+        if os.path.isfile(candidate):
+            return candidate
+
+    for folder in (base_path, os.path.join(base_path, "..")):
+        matches = sorted(glob.glob(os.path.join(folder, "starmap_*32k*.png")))
+        if matches:
+            return matches[0]
+
+    return None
+
 
 # where we get our image that we chop up
-tile_source_path = os.path.join(base_path, "../starmap_2020_32k_8bit_stretch.png")
+tile_source_path = find_tile_source()
+if tile_source_path is None:
+    print("[FAIL] could not locate starmap source image; set TILE_SOURCE=<path>")
+    print(f"       looked for {STARMAP_FILENAME} in {base_path} and the folder above it")
+    sys.exit(1)
+print("Tile source:", os.path.abspath(tile_source_path))
 
 # where we put our chopped up images
 tile_gen_path = os.path.join(base_path, "tiles")
@@ -55,11 +89,11 @@ with Image.open(tile_source_path) as orig_world_map:
                 cropped = zoomed_world_map.crop((
                     x * TILE_SIZE,
                     y * TILE_SIZE,
-                    (x + 1) * TILE_SIZE - 1,
-                    (y + 1) * TILE_SIZE - 1,
+                    (x + 1) * TILE_SIZE,
+                    (y + 1) * TILE_SIZE,
                 ))
                 print(z, x,y)
-                # print( x * TILE_SIZE, y * TILE_SIZE, (x + 1) * TILE_SIZE - 1, (y + 1) * TILE_SIZE - 1)
+                # print( x * TILE_SIZE, y * TILE_SIZE, (x + 1) * TILE_SIZE, (y + 1) * TILE_SIZE)
                 x_name=str(format(x, '06'))
                 cropped.save(os.path.join(x_val_dir, y_name+"_"+x_name + ".jpg"))
         # free memory

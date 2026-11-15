@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    night_sky.dgml - Marble / digiKam map theme for the night sky.
+
+    This theme is installed by hand. script.py only generates the content
+    (final/*.geojson.kml); it never writes or copies this file.
+
+    INSTALL LAYOUT
+    ==============
+    Create a folder named "night_sky" inside the "sky" map target of the
+    program that should display it:
+
+        Marble:  ~/.local/share/marble/maps/sky/night_sky/
+        digiKam: <digiKam install>data/digikam/marble/maps/sky/night_sky/
+                 e.g. C:\Program Files\digiKam\data\digikam\marble\maps\sky\night_sky\
+
+    Put in it:
+
+        night_sky.dgml                              (this file)
+        starmap_2020_32k_8bit_stretch.png           (install map, see below)
+        constellations_borders_mirror.geojson.kml   (copied from final/)
+        constellations_lines_mirror.geojson.kml
+        constellations_mirror.geojson.kml
+        dsos_mag6_mirror.geojson.kml
+        stars_6_mirror.geojson.kml
+
+    THE INSTALL MAP
+    ===============
+    Marble's tile generator (TileCreator) refuses images larger than
+    21600x10800 pixels, so the 32k starmap has to be downscaled first.
+    Keep the name identical:
+
+        magick starmap_2020_32k_8bit_stretch.png -resize 21600x10800! \
+               <theme>/starmap_2020_32k_8bit_stretch.png
+
+    The first time the theme is opened, Marble offers to generate the tile
+    pyramid from that image. The tiles are written to Marble's cache:
+
+        ~/.cache/marble/maps/sky/night_sky/
+
+    From a 21600x10800 image that yields levels 0 to 4 with 675x675 tiles.
+    Levels 5 to 7 (declared as maximumTileLevel below) are optional: they
+    only appear if you generate them yourself with tile_maker.py from the
+    full 32k source, which is how higher zoom levels get real detail.
+    Without them Marble simply upscales level 4.
+-->
+<dgml xmlns="http://edu.kde.org/marble/dgml/2.0">
+    <document>
+        <head>
+            <license short="Public Domain">Source: NASA SVS Milky Way panorama, ESA Gaia / HYG star and constellation data. Licenses: Public Domain / CC BY-SA.</license>
+            <name>Night Sky</name>
+            <target>sky</target>
+            <theme>night_sky</theme>
+
+            <visible>true</visible>
+
+            <description><![CDATA[<p>The <i>night sky</i> as a panorama.</p><p>NASA Milky Way image with stars, deep sky objects and constellation lines.</p>]]></description>
+
+            <zoom>
+                <minimum>  900  </minimum>
+                <maximum> 2100  </maximum>
+
+                <!-- describes whether you can zoom through the levels
+                    continuously -->
+                <discrete> false </discrete>
+            </zoom>
+        </head>
+
+        <!-- Now we create the layer structure that gets handled by the
+            layer management class -->
+
+        <map bgcolor="#000000" labelColor="#ffffff">
+            <canvas/>
+            <target/>
+
+            <!-- The background panorama -->
+            <layer name="night_sky" backend="texture">
+                <texture name="night_sky_data">
+                    <sourcedir format="JPG"> sky/night_sky </sourcedir>
+                    <installmap> starmap_2020_32k_8bit_stretch.png </installmap>
+                    <storageLayout maximumTileLevel="7"/>
+                </texture>
+            </layer>
+
+            <!-- Stars, deep sky objects and constellation figures -->
+            <layer name="celestial places" backend="geodata">
+                <geodata name="constellation_borders">
+                    <sourcefile format="KML"> maps/sky/night_sky/constellations_borders_mirror.geojson.kml </sourcefile>
+                </geodata>
+                <geodata name="constellation_lines">
+                    <sourcefile format="KML"> maps/sky/night_sky/constellations_lines_mirror.geojson.kml </sourcefile>
+                </geodata>
+                <geodata name="constellations">
+                    <sourcefile format="KML"> maps/sky/night_sky/constellations_mirror.geojson.kml </sourcefile>
+                </geodata>
+                <geodata name="deep_sky_objects">
+                    <sourcefile format="KML"> maps/sky/night_sky/dsos_mag6_mirror.geojson.kml </sourcefile>
+                </geodata>
+                <geodata name="stars">
+                    <sourcefile format="KML"> maps/sky/night_sky/stars_6_mirror.geojson.kml </sourcefile>
+                </geodata>
+            </layer>
+        </map>
+
+        <settings>
+            <property name="coordinate-grid">
+                <value>true</value>
+                <available>true</available>
+            </property>
+            <property name="overviewmap">
+                <value>true</value>
+                <available>true</available>
+            </property>
+            <property name="compass">
+                <value>true</value>
+                <available>true</available>
+            </property>
+            <property name="scalebar">
+                <value>true</value>
+                <available>true</available>
+            </property>
+        </settings>
+    </document>
+</dgml>
