@@ -156,10 +156,21 @@ else:
     else:
         try:
             print(f"Creating: {panorama_final}")
+            # The NASA panorama is a linear HDR EXR. Boost it in linear light and
+            # then roll the highlights off with a Reinhard curve (u/(1+u)): the
+            # faint stars stay above the noise floor while bright stars do not
+            # clip to white. A plain brightness boost on the 8-bit JPEG instead
+            # flattens the sky to grey.
+            exposure = 100
             img = WandImage(filename=Panorama_name)
-            img.modulate(brightness=720)
-            # img.contrast_stretch(0.0, 0.999999)
+            # Wand reports the EXR as 16-bit sRGB; go to linear RGB first so the
+            # multiply and the tone curve operate on physical light values.
+            img.transform_colorspace('rgb')
+            img.evaluate(operator='multiply', value=exposure)
+            img.fx('u/(1+u)')
+            img.transform_colorspace('srgb')
             img.format = 'jpeg'
+            img.compression_quality = 95
             img.save(filename=panorama_final)
         except Exception as exc:
             print(f"[FAIL] {panorama_final}: {type(exc).__name__}: {exc}")

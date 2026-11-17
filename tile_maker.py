@@ -95,7 +95,14 @@ with Image.open(tile_source_path) as orig_world_map:
                 print(z, x,y)
                 # print( x * TILE_SIZE, y * TILE_SIZE, (x + 1) * TILE_SIZE, (y + 1) * TILE_SIZE)
                 x_name=str(format(x, '06'))
-                cropped.save(os.path.join(x_val_dir, y_name+"_"+x_name + ".jpg"))
+                cropped.save(
+                    os.path.join(x_val_dir, y_name+"_"+x_name + ".jpg"),
+                    # Default JPEG is quality 75 with 4:2:0 chroma subsampling,
+                    # which smears the faint stars into coloured blotches.
+                    quality=92,
+                    subsampling=0,
+                    optimize=True,
+                )
         # free memory
         zoomed_world_map = None
         del zoomed_world_map
