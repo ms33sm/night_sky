@@ -32,6 +32,227 @@ import os
 import pathlib
 import subprocess
 import sys
+from collections import defaultdict, deque
+
+
+COORD_EPS = 1e-9
+
+
+def coord_key(point):
+    """Return a graph key for a coordinate, treating both antimeridian sides as one point."""
+    lon, lat = float(point[0]), float(point[1])
+    if abs(abs(lon) - 180.0) < COORD_EPS:
+        lon = 180.0
+    return (round(lon, 9), round(lat, 9))
+
+
+def build_graph(lines):
+    """Build an undirected multigraph from a list of coordinate sequences."""
+    edges = []
+    adjacency = defaultdict(list)
+    for line in lines:
+        points = [(float(point[0]), float(point[1])) for point in line]
+        for a, b in zip(points, points[1:]):
+            key_a, key_b = coord_key(a), coord_key(b)
+            if key_a == key_b and a == b:
+                continue
+            edge_id = len(edges)
+            edges.append({"a": a, "b": b, "key_a": key_a, "key_b": key_b})
+            adjacency[key_a].append((key_b, edge_id))
+            adjacency[key_b].append((key_a, edge_id))
+    return edges, adjacency
+
+
+def graph_components(adjacency):
+    """Return the connected vertex sets of an undirected adjacency mapping."""
+    seen = set()
+    components = []
+    for node in adjacency:
+        if node in seen:
+            continue
+        queue = deque([node])
+        seen.add(node)
+        component = []
+        while queue:
+            current = queue.popleft()
+            component.append(current)
+            for neighbour, _ in adjacency[current]:
+                if neighbour not in seen:
+                    seen.add(neighbour)
+                    queue.append(neighbour)
+        components.append(component)
+    return components
+
+
+def shortest_paths(adjacency, source):
+    """Breadth-first distances and predecessor edges from one vertex."""
+    distance = {source: 0}
+    previous = {}
+    queue = deque([source])
+    while queue:
+        current = queue.popleft()
+        for neighbour, edge_id in adjacency[current]:
+            if neighbour not in distance:
+                distance[neighbour] = distance[current] + 1
+                previous[neighbour] = (current, edge_id)
+                queue.append(neighbour)
+    return distance, previous
+
+
+def path_edges(previous, target):
+    """Rebuild an edge path from the predecessor map made by shortest_paths."""
+    result = []
+    while target in previous:
+        current, edge_id = previous[target]
+        result.append(edge_id)
+        target = current
+    result.reverse()
+    return result
+
+
+def min_perfect_matching(nodes, cost_function):
+    """Choose the cheapest pairing of an even number of vertices."""
+    count = len(nodes)
+    if count % 2:
+        raise ValueError("odd number of vertices cannot be matched")
+    memo = {}
+
+    def solve(mask):
+        if mask == 0:
+            return (0, [])
+        if mask in memo:
+            return memo[mask]
+        first = 0
+        while not (mask & (1 << first)):
+            first += 1
+        best = None
+        for other in range(first + 1, count):
+            if not (mask & (1 << other)):
+                continue
+            rest_cost, rest_pairs = solve(mask ^ (1 << first) ^ (1 << other))
+            total = cost_function(nodes[first], nodes[other]) + rest_cost
+            if best is None or total < best[0]:
+                best = (total, [(nodes[first], nodes[other])] + rest_pairs)
+        memo[mask] = best
+        return best
+
+    return solve((1 << count) - 1)[1]
+
+
+def euler_trail(start, adjacency, edges, used=None):
+    """Return edge IDs for a trail that uses every edge in a component once."""
+    if used is None:
+        used = set()
+    pointer = defaultdict(int)
+    stack = [(start, None)]
+    result = []
+    while stack:
+        current, incoming_edge = stack[-1]
+        while pointer[current] < len(adjacency[current]) and adjacency[current][pointer[current]][1] in used:
+            pointer[current] += 1
+        if pointer[current] == len(adjacency[current]):
+            if incoming_edge is not None:
+                result.append(incoming_edge)
+            stack.pop()
+            continue
+        neighbour, edge_id = adjacency[current][pointer[current]]
+        pointer[current] += 1
+        if edge_id in used:
+            continue
+        used.add(edge_id)
+        stack.append((neighbour, edge_id))
+    result.reverse()
+    return result
+
+
+def trail_coordinates(start, edge_ids, edges):
+    """Turn an ordered list of edge IDs into one continuous coordinate sequence."""
+    current = start
+    coordinates = []
+    for edge_id in edge_ids:
+        edge = edges[edge_id]
+        if current == edge["key_a"]:
+            coordinates.append(edge["a"])
+            coordinates.append(edge["b"])
+            current = edge["key_b"]
+        elif current == edge["key_b"]:
+            coordinates.append(edge["b"])
+            coordinates.append(edge["a"])
+            current = edge["key_a"]
+        else:
+            raise AssertionError((current, edge["key_a"], edge["key_b"]))
+    if not coordinates:
+        return []
+    result = [coordinates[0]]
+    for point in coordinates[1:]:
+        if point != result[-1]:
+            result.append(point)
+    return result
+
+
+def unwrap_longitudes(coordinates):
+    """Unwrap a coordinate sequence so antimeridian crossings stay continuous.
+
+    Marble splits a tessellated LineString whenever two adjacent longitudes have
+    opposite signs and are far enough from zero.  Writing a seam crossing as,
+    for example, 179 -> 182 instead of 179 -> -178 avoids that split.  Marble's
+    cylindrical projection repeats the world, so the unwrapped segment still
+    renders on the correct side of the seam.
+    """
+    if not coordinates:
+        return []
+    unwrapped = [(float(coordinates[0][0]), float(coordinates[0][1]))]
+    for longitude, latitude in coordinates[1:]:
+        longitude = float(longitude)
+        latitude = float(latitude)
+        previous_longitude = unwrapped[-1][0]
+        delta = longitude - previous_longitude
+        while delta > 180.0:
+            delta -= 360.0
+        while delta < -180.0:
+            delta += 360.0
+        unwrapped.append((previous_longitude + delta, latitude))
+    return unwrapped
+
+
+def stitch_lines(lines):
+    """Join touching line parts into connected trails without adding new edges.
+
+    The input GeoJSON contains constellations whose lines are split into many
+    parts. Where parts already share an endpoint, a multigraph can be traversed
+    as one connected trail. Components with more than two odd-degree vertices
+    are made traversable by duplicating existing shortest paths between odd
+    vertices. This never connects genuinely separate figures. Longitudes are
+    unwrapped at the antimeridian so Marble renders seam crossings as one line.
+    """
+    edges, adjacency = build_graph(lines)
+    if not edges:
+        return []
+    output = []
+    for component in graph_components(adjacency):
+        degrees = {vertex: len(adjacency[vertex]) for vertex in component}
+        odd_vertices = [vertex for vertex in component if degrees[vertex] % 2]
+        component_adjacency = {vertex: adjacency[vertex] for vertex in component}
+        if len(odd_vertices) > 2:
+            all_distances = {}
+            all_previous = {}
+            for vertex in odd_vertices:
+                all_distances[vertex], all_previous[vertex] = shortest_paths(component_adjacency, vertex)
+            pairs = min_perfect_matching(odd_vertices, lambda a, b: all_distances[a][b])
+            for a, b in pairs:
+                for edge_id in path_edges(all_previous[a], b):
+                    original = edges[edge_id]
+                    new_id = len(edges)
+                    edges.append(dict(original))
+                    adjacency[original["key_a"]].append((original["key_b"], new_id))
+                    adjacency[original["key_b"]].append((original["key_a"], new_id))
+                    component_adjacency[original["key_a"]].append((original["key_b"], new_id))
+                    component_adjacency[original["key_b"]].append((original["key_a"], new_id))
+        start = odd_vertices[0] if odd_vertices else component[0]
+        edge_ids = euler_trail(start, component_adjacency, edges)
+        coordinates = trail_coordinates(start, edge_ids, edges)
+        output.append(unwrap_longitudes(coordinates))
+    return output
 
 
 download_huge_files = True
@@ -447,6 +668,11 @@ if shape is not None:
                         for i in range(0, len(cord)):
                             for j in range(0, len(cord[i])):
                                 cord[i][j][0]=(-1)*cord[i][j][0]
+                        # Join touching line parts into connected trails. Only
+                        # the constellation-lines layer gets this treatment;
+                        # borders keep their original topology.
+                        if geojson_in == constellations_lines:
+                            feature['geometry']['coordinates'] = stitch_lines(cord)
                     else:
                         print(f"Not supported geometry type: {feature['geometry'].type}")
 
