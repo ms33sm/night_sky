@@ -79,7 +79,7 @@ download_files=[
     ]
 
 
-### first file to process, second output file, third: "svg_icon/path", 4th: linestylecolor "#00000000", 5th: linewidth 2.5
+### first file to process, second output file, third: icon filename under the theme's pics/ folder, 4th: KML color AABBGGRR, 5th: linewidth 2.5
 mirror_geojson_files=[
     #### Multiline coordinate file
         [constellations_borders, constellations_borders_mirror, None, "FFFF00FF", 2.5],
@@ -94,9 +94,9 @@ mirror_geojson_files1=[
 mirror_geojson_files2=[
     #### Point coordinate file
         # [constellations_borders, constellations_borders_mirror],
-        [constellations, constellations_mirror, "pics/star.svg", None, 2.5],
-        [dso_mag6, dso_mag6_mirror, "pics/dso.svg", "#FFFFFFFF", 2.5],
-        [stars_mag6, stars_mag6_mirror, "pics/star.svg" , "#FFFFFFFF", 2.5],
+        [constellations, constellations_mirror, "pics/star.png", "FFFFFFFF", 2.5],
+        [dso_mag6, dso_mag6_mirror, "pics/dso.png", "FFFFFFFF", 2.5],
+        [stars_mag6, stars_mag6_mirror, "pics/star.png", "FFFFFFFF", 2.5],
     ]
 
 
@@ -408,6 +408,21 @@ if shape is not None:
 
         icon_scale=0.2
 
+        # KML colors are AABBGGRR, with no leading '#'. Marble's KML parser
+        # rejects '#'-prefixed colors as QColor(), which made point labels
+        # invisible. Marble's default label color is black, so every point
+        # layer now sets an explicit white label color.
+        is_point_layer = False
+        try:
+            with open(geojson_in, 'r') as probe:
+                probe_data = geojson.load(probe)
+            is_point_layer = all(
+                f.get('geometry', {}).get('type') == 'Point'
+                for f in probe_data.get('features', [])
+            )
+        except Exception:
+            pass
+
         outfile = pathlib.Path(gojson_out + ".kml")
 
         if not os.path.exists(geojson_in) or os.path.getsize(geojson_in) == 0:
@@ -443,17 +458,23 @@ if shape is not None:
                     # altitude_mode=AltitudeMode.relative_to_ground,
                     )
 
-                style = fastkml.styles.Style(
-                    styles=[
-                        fastkml.styles.LineStyle(color=linecolor, width=linewidth),
-                        fastkml.styles.PolyStyle(
-                            color=linecolor,
-                            # fill=True,
-                            # outline=True,
-                            ),
-                        fastkml.styles.IconStyle(icon_href=icon_url, scale=icon_scale, color=linecolor),
-                        ]
-                    )
+                styles = []
+                if is_point_layer:
+                    # For Point placemarks Marble keeps the inline KML style, so
+                    # emit only the icon style and a plain white label color. Do
+                    # not add line/poly styles to point layers.
+                    if icon_url:
+                        styles.append(fastkml.styles.IconStyle(icon_href=icon_url, scale=icon_scale))
+                    if linecolor:
+                        styles.append(fastkml.styles.LabelStyle(color=linecolor))
+                else:
+                    # Non-point styles are normally replaced by the DGML geodata
+                    # style at load time, but these values are useful in other
+                    # KML viewers and as a fallback.
+                    if linecolor:
+                        styles.append(fastkml.styles.LineStyle(color=linecolor, width=linewidth))
+                        styles.append(fastkml.styles.PolyStyle(color=linecolor))
+                style = fastkml.styles.Style(styles=styles)
                 try:
                     name=feature["properties"]["name"]
                 except Exception:

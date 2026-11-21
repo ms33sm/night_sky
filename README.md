@@ -9,6 +9,7 @@ The pipeline has three independent pieces:
 | File | Purpose |
 | --- | --- |
 | `script.py` | Downloads the source data and produces `final/mirrored.jpg` plus the five `final/*.geojson.kml` layers. |
+| `pics/` | Small PNG symbols (`star.png`, `dso.png`) referenced by the point layers. Copy them with the theme. |
 | `tile_maker.py` | Chops an equirectangular image into a `z/y/x` JPEG tile pyramid. |
 | `night_sky.dgml` | Marble theme description that ties the panorama, tiles and KML layers together. |
 
@@ -74,6 +75,8 @@ MAGICK_TMPDIR=/tmp/python3 script.py
 
 ```
 final/mirrored.jpg
+pics/star.png
+pics/dso.png
 final/constellations_borders_mirror.geojson.kml
 final/constellations_lines_mirror.geojson.kml
 final/constellations_mirror.geojson.kml
@@ -115,10 +118,11 @@ Create the directory and copy the theme, install map, layers and tiles into it
 THEME=~/.local/share/digikam/marble_data/maps/earth/night_sky
 # Flatpak: THEME=~/.var/app/org.kde.digikam/data/digikam/marble_data/maps/earth/night_sky
 
-mkdir -p "$THEME"
+mkdir -p "$THEME"/pics
 cp night_sky.dgml "$THEME"/
 cp final/mirrored.jpg "$THEME"/
 cp final/*.geojson.kml "$THEME"/
+cp pics/*.png "$THEME"/pics/
 cp -r tiles/0 tiles/1 tiles/2 tiles/3 tiles/4 "$THEME"/
 ```
 
@@ -129,9 +133,9 @@ menu). It appears as **Night Sky** under the Earth map themes.
 ### Windows
 
 Use `%LOCALAPPDATA%\digikam\marble_data\maps\earth\night_sky\` and copy the same
-files (`night_sky.dgml`, `mirrored.jpg`, the KML files, and the numbered tile
-folders) into it. A system-wide install can instead use the `maps\earth\`
-folder inside digiKam's own `data\digikam\marble\` directory.
+files (`night_sky.dgml`, `mirrored.jpg`, the KML files, the `pics\` folder, and
+the numbered tile folders) into it. A system-wide install can instead use the
+`maps\earth\` folder inside digiKam's own `data\digikam\marble\` directory.
 
 ## How the theme is put together
 

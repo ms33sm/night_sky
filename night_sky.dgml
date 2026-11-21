@@ -24,6 +24,11 @@
         constellations_mirror.geojson.kml
         dsos_mag6_mirror.geojson.kml
         stars_6_mirror.geojson.kml
+        pics/star.png
+        pics/dso.png
+
+    The point-layer KML files reference the two PNG symbols above. Keeping them
+    in a "pics" subfolder matches Marble's normal relative-path handling.
 
     THE TILES
     =========
@@ -96,9 +101,13 @@
             <layer name="celestial places" backend="geodata">
                 <geodata name="constellation_borders">
                     <sourcefile format="KML"> maps/earth/night_sky/constellations_borders_mirror.geojson.kml </sourcefile>
+                    <!-- Marble overrides KML line styles on non-point geodata
+                         with the style derived from these DGML values. -->
+                    <pen color="#ff00ff" width="2.5"/>
                 </geodata>
                 <geodata name="constellation_lines">
                     <sourcefile format="KML"> maps/earth/night_sky/constellations_lines_mirror.geojson.kml </sourcefile>
+                    <pen color="#ff0000" width="2.5"/>
                 </geodata>
                 <geodata name="constellations">
                     <sourcefile format="KML"> maps/earth/night_sky/constellations_mirror.geojson.kml </sourcefile>
