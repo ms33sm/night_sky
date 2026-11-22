@@ -28,14 +28,323 @@ from PIL import Image, ImageOps
 
 from urllib.request import urlretrieve
 
+import argparse
+import math
 import os
 import pathlib
+import platform
+import re
+import shutil
 import subprocess
 import sys
-from collections import defaultdict, deque
+from collections import defaultdict, deque, namedtuple
 
 
 COORD_EPS = 1e-9
+THEME_NAME = "night_sky"
+DGML_FILE = pathlib.Path("night_sky.dgml")
+DEFAULT_LINE_COLOR = "FF0000FF"
+DEFAULT_LINE_WIDTH = 2.5
+DEFAULT_LINE_STYLE = "solidline"
+
+# Marble DGML pen style tokens from DgmlPenTagHandler.cpp. KML LineStyle has no
+# dash field, so the line type is applied through the DGML <pen> element.
+LINE_STYLE_ALIASES = {
+    "solid": "solidline",
+    "solidline": "solidline",
+    "dash": "dashline",
+    "dashed": "dashline",
+    "dashline": "dashline",
+    "dot": "dotline",
+    "dotted": "dotline",
+    "dotline": "dotline",
+    "dashdot": "dashdotline",
+    "dashdotline": "dashdotline",
+    "dashdotdot": "dashdotdotline",
+    "dashdotdotline": "dashdotdotline",
+    "none": "nopen",
+    "nopen": "nopen",
+}
+
+LineColor = namedtuple("LineColor", ["kml", "dgml"])
+
+
+def format_number(value):
+    """Format a CLI number compactly for XML attributes."""
+    return f"{value:g}"
+
+
+def make_line_color(alpha, red, green, blue):
+    """Build the two color spellings used by KML and DGML."""
+    kml = f"{alpha:02X}{blue:02X}{green:02X}{red:02X}"
+    if alpha == 255:
+        dgml = f"#{red:02x}{green:02x}{blue:02x}"
+    else:
+        dgml = f"#{alpha:02x}{red:02x}{green:02x}{blue:02x}"
+    return LineColor(kml, dgml)
+
+
+def parse_line_color(value):
+    """Accept RGB, HTML/CSS, or Marble/KML colors and return both forms.
+
+    Supported examples:
+        255, 0, 0          rgb(255, 0, 0)       rgb(255 0 0)
+        #ff0000            #f00                 ff0000
+        FF0000FF           #FF0000FF            ff0000ff
+
+    Eight hex digits are always treated as Marble/KML AABBGGRR; six or three
+    hex digits are HTML RRGGBB.
+    """
+    raw = str(value).strip()
+    if not raw:
+        raise argparse.ArgumentTypeError("line color cannot be empty")
+
+    rgb_match = re.fullmatch(r"rgba?\s*\(([^)]*)\)", raw, flags=re.IGNORECASE)
+    if rgb_match:
+        parts = [part for part in re.split(r"[\s,]+", rgb_match.group(1).strip()) if part]
+        if len(parts) not in (3, 4):
+            raise argparse.ArgumentTypeError("RGB colors need three or four channels")
+        channels = []
+        for part in parts:
+            if not re.fullmatch(r"\d{1,3}", part):
+                raise argparse.ArgumentTypeError(f"invalid RGB channel: {part!r}")
+            channel = int(part)
+            if channel > 255:
+                raise argparse.ArgumentTypeError(f"RGB channel out of range: {part!r}")
+            channels.append(channel)
+        if len(channels) == 3:
+            channels.append(255)
+        return make_line_color(channels[3], channels[0], channels[1], channels[2])
+
+    if re.fullmatch(r"\d{1,3}[\s,]+\d{1,3}[\s,]+\d{1,3}", raw):
+        parts = re.split(r"[\s,]+", raw)
+        channels = []
+        for part in parts:
+            channel = int(part)
+            if channel > 255:
+                raise argparse.ArgumentTypeError(f"RGB channel out of range: {part!r}")
+            channels.append(channel)
+        return make_line_color(255, channels[0], channels[1], channels[2])
+
+    hex_value = raw[1:] if raw.startswith("#") else raw
+    if not re.fullmatch(r"[0-9A-Fa-f]+", hex_value):
+        raise argparse.ArgumentTypeError(
+            "color must be RGB (255,0,0), HTML (#ff0000), or Marble AABBGGRR (FF0000FF)"
+        )
+
+    if len(hex_value) == 8:
+        alpha = int(hex_value[0:2], 16)
+        red = int(hex_value[6:8], 16)
+        green = int(hex_value[4:6], 16)
+        blue = int(hex_value[2:4], 16)
+        return make_line_color(alpha, red, green, blue)
+    if len(hex_value) == 6:
+        return make_line_color(
+            255,
+            int(hex_value[0:2], 16),
+            int(hex_value[2:4], 16),
+            int(hex_value[4:6], 16),
+        )
+    if len(hex_value) == 3:
+        return make_line_color(
+            255,
+            int(hex_value[0] * 2, 16),
+            int(hex_value[1] * 2, 16),
+            int(hex_value[2] * 2, 16),
+        )
+    raise argparse.ArgumentTypeError(
+        "hex colors must have 3, 6 (HTML), or 8 (Marble AABBGGRR) digits"
+    )
+
+
+def parse_line_style(value):
+    """Normalize a user-facing line style name to a DGML pen style token."""
+    normalized = re.sub(r"[-_\s]+", "", str(value).strip().lower())
+    if normalized in LINE_STYLE_ALIASES:
+        return LINE_STYLE_ALIASES[normalized]
+    supported = ", ".join(sorted(set(LINE_STYLE_ALIASES.values())))
+    raise argparse.ArgumentTypeError(f"unsupported line type {value!r}; use one of: {supported}")
+
+
+def positive_float(value):
+    """Argparse type for strictly positive finite numbers."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError(f"expected a number, got {value!r}")
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError("value must be greater than zero")
+    return number
+
+
+def update_dgml_line_style(path, color, width, style):
+    """Write the selected constellation-line style into the DGML theme file."""
+    path = pathlib.Path(path)
+    text = path.read_text(encoding="utf-8")
+
+    geodata_pattern = re.compile(
+        r'(<geodata\b(?=[^>]*\bname\s*=\s*["\']constellation_lines["\'])[^>]*>)'
+        r'(.*?)'
+        r'(</geodata\s*>)',
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    match = geodata_pattern.search(text)
+    if not match:
+        raise ValueError('no <geodata name="constellation_lines"> element found')
+
+    block = match.group(0)
+    pen = f'<pen color="{color.dgml}" width="{format_number(width)}" style="{style}"/>'
+    new_block, count = re.subn(r'<pen\b[^>]*?/?>', pen, block, count=1, flags=re.IGNORECASE)
+    if count != 1:
+        raise ValueError('no <pen> element found in the constellation_lines geodata block')
+
+    path.write_text(text[:match.start()] + new_block + text[match.end():], encoding="utf-8")
+    return path
+
+
+def default_install_target():
+    """Native digiKam Marble theme directory for the current Linux user."""
+    data_home = os.environ.get("XDG_DATA_HOME")
+    base = pathlib.Path.home() / ".local/share"
+    if data_home:
+        candidate = pathlib.Path(data_home).expanduser()
+        if candidate.is_absolute():
+            base = candidate
+    return base / "digikam" / "marble_data" / "maps" / "earth" / THEME_NAME
+
+
+def install_theme(target, failed):
+    """Copy the generated theme into a Linux digiKam/Marble data directory."""
+    target = pathlib.Path(target).expanduser()
+    print(f"Installing to: {target}")
+
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        print(f"[FAIL] install {target}: {type(exc).__name__}: {exc}")
+        failed.append(str(target))
+        return False
+
+    required = [pathlib.Path(DGML_FILE), pathlib.Path(panorama_final)]
+    required.extend(pathlib.Path(pair[1] + ".kml") for pair in allfiles)
+
+    try:
+        for source in required:
+            if str(source) in failed:
+                raise RuntimeError(f"generation failed for {source}")
+            if not source.is_file() or source.stat().st_size == 0:
+                raise FileNotFoundError(f"missing or empty source: {source}")
+            shutil.copy2(source, target / source.name)
+
+        pics_source = pathlib.Path("pics")
+        pics = sorted(
+            path for path in pics_source.glob("*.png")
+            if path.is_file() and path.stat().st_size > 0
+        )
+        if not pics:
+            raise FileNotFoundError(f"no PNG icons found in {pics_source}")
+        pics_target = target / "pics"
+        pics_target.mkdir(parents=True, exist_ok=True)
+        for source in pics:
+            shutil.copy2(source, pics_target / source.name)
+
+        tiles_source = pathlib.Path("tiles")
+        tile_levels = []
+        if tiles_source.is_dir():
+            tile_levels = sorted(
+                (path for path in tiles_source.iterdir() if path.is_dir() and path.name.isdigit()),
+                key=lambda path: int(path.name),
+            )
+
+        tile_count = 0
+        for source in tile_levels:
+            tile_files = [path for path in source.rglob("*") if path.is_file()]
+            if not tile_files:
+                raise FileNotFoundError(f"tile level is empty: {source}")
+            shutil.copytree(source, target / source.name, dirs_exist_ok=True)
+            tile_count += len(tile_files)
+
+        license_source = pathlib.Path(download_folder) / "BSD-3-Clause.html"
+        copied_license = False
+        if license_source.is_file() and license_source.stat().st_size > 0:
+            shutil.copy2(license_source, target / license_source.name)
+            copied_license = True
+    except Exception as exc:
+        print(f"[FAIL] install {target}: {type(exc).__name__}: {exc}")
+        failed.append(str(target))
+        return False
+
+    print(
+        f"[OK] installed theme: {len(required)} files, {len(pics)} icons, "
+        f"{len(tile_levels)} tile levels ({tile_count} tiles)"
+    )
+    if copied_license:
+        print(f"[OK] installed attribution: {target / license_source.name}")
+    else:
+        print("[SKIP] optional BSD-3-Clause.html was not present")
+    if not tile_levels:
+        print("[SKIP] no numbered tile levels found; Marble can build them from mirrored.jpg")
+    return True
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Generate the night_sky Marble theme and install it on Linux.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""color examples:
+  --line-color '255,0,0'        RGB channels
+  --line-color 'rgb(255,0,0)'   CSS-like RGB
+  --line-color '#3366cc'        HTML color
+  --line-color 'FFCC6633'       Marble/KML AABBGGRR
+
+line type examples: solid, dashed, dotted, dash-dot, dash-dot-dot, none
+""",
+    )
+    parser.add_argument(
+        "-c", "--line-color",
+        type=parse_line_color,
+        default=parse_line_color(DEFAULT_LINE_COLOR),
+        metavar="COLOR",
+        help=(
+            "constellation line color as RGB, HTML, or Marble AABBGGRR "
+            f"(default: {DEFAULT_LINE_COLOR})"
+        ),
+    )
+    parser.add_argument(
+        "-t", "--line-type", "--line-style",
+        dest="line_type",
+        type=parse_line_style,
+        default=DEFAULT_LINE_STYLE,
+        metavar="TYPE",
+        help=(
+            "constellation line type: solid, dashed, dotted, dash-dot, "
+            f"dash-dot-dot, or none (default: {DEFAULT_LINE_STYLE})"
+        ),
+    )
+    parser.add_argument(
+        "-w", "--line-width", "--line-thickness",
+        dest="line_width",
+        type=positive_float,
+        default=DEFAULT_LINE_WIDTH,
+        metavar="WIDTH",
+        help=f"constellation line thickness in pixels (default: {DEFAULT_LINE_WIDTH})",
+    )
+    parser.add_argument(
+        "-i", "--install-target",
+        type=pathlib.Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "full theme directory to install into; default is this user's native "
+            "digiKam night_sky directory"
+        ),
+    )
+    parser.add_argument(
+        "--no-install",
+        action="store_true",
+        help="generate and style the theme files but skip the automatic Linux install",
+    )
+    return parser.parse_args()
 
 
 def coord_key(point):
@@ -262,6 +571,22 @@ generated = []
 skipped = []
 failed = []
 
+args = parse_args()
+line_color = args.line_color
+line_width = args.line_width
+line_style = args.line_type
+
+try:
+    update_dgml_line_style(DGML_FILE, line_color, line_width, line_style)
+except Exception as exc:
+    print(f"[FAIL] line style {DGML_FILE}: {type(exc).__name__}: {exc}")
+    failed.append(str(DGML_FILE))
+else:
+    print(
+        f"[OK] line style: color={line_color.kml}, width={format_number(line_width)}, "
+        f"type={line_style}"
+    )
+
 download_folder="downloads"
 results_folder="final"
 
@@ -309,7 +634,7 @@ mirror_geojson_files=[
 
 mirror_geojson_files1=[
         # [constellations_borders, constellations_borders_mirror],
-        [constellations_lines, constellations_lines_mirror, None, "FF0000FF", 2.5],
+        [constellations_lines, constellations_lines_mirror, None, line_color.kml, line_width],
     ]
 
 mirror_geojson_files2=[
@@ -732,7 +1057,6 @@ if shape is not None:
 
 #### constellation descriptions
 # test for constellations info download
-import re
 
 
 def clean_div(string):
@@ -836,6 +1160,14 @@ else:
 # for p in points:
 #     print(p.geometry)
 
+
+if platform.system() == "Linux":
+    if args.no_install:
+        print("[SKIP] automatic install: disabled by --no-install")
+    else:
+        install_theme(args.install_target or default_install_target(), failed)
+else:
+    print("[SKIP] automatic install: Linux only (copy the theme manually)")
 
 print()
 print("=" * 60)

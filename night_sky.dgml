@@ -2,8 +2,11 @@
 <!--
     night_sky.dgml - Marble / digiKam map theme for the night sky.
 
-    This theme is installed by hand. script.py only generates the content
-    (final/*.geojson.kml); it never writes or copies this file.
+    script.py writes the selected constellation-line style into the <pen>
+    element below. On Linux it also copies this file, the generated layers,
+    the icons and the tile pyramid into digiKam's Marble data directory.
+    Use the no-install option to skip the copy, or install-target to choose
+    another destination. Manual installation instructions remain below.
 
     INSTALL LAYOUT
     ==============
@@ -107,7 +110,7 @@
                 </geodata>
                 <geodata name="constellation_lines">
                     <sourcefile format="KML"> maps/earth/night_sky/constellations_lines_mirror.geojson.kml </sourcefile>
-                    <pen color="#ff0000" width="2.5"/>
+                    <pen color="#ff0000" width="2.5" style="solidline"/>
                 </geodata>
                 <geodata name="constellations">
                     <sourcefile format="KML"> maps/earth/night_sky/constellations_mirror.geojson.kml </sourcefile>
